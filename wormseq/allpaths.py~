@@ -1,0 +1,5 @@
+from wormseq.config_reader import *
+
+def run():
+    print "\n\t(automate) >> starting allpaths\n"
+    print "\n\t(automate) >> finished allpaths\n"

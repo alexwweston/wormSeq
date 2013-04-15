@@ -1,0 +1,57 @@
+import os
+
+home_dir = "/home3/everson/554/"
+
+# config_file = os.path.join(home_dir, "automate.conf")
+data_dir = os.path.join(home_dir, "data")
+scripts_dir = os.path.join(home_dir, "scr")
+bin_dir = os.path.join(home_dir, "bin")
+
+# for steps that require an external binary application to run
+process_shortreads_bin = os.path.join(bin_dir, "process_shortreads")
+kmer_filter_bin = os.path.join(bin_dir, "kmer_filter")
+
+# package variables that could be read in from the configuration file someday
+barcode_match_file = os.path.join(data_dir, 'ps_barcode/lane7_samples')
+
+def read_config(conf_file):
+    """
+    Given a filename, read the configuration file and return a dictionary
+    keyed by the name of the module to run, with values returning a list
+    suitable to passed to python's subprocess module
+
+    args:
+    conf_file -- configuration file name - located in home directory
+
+    returns:
+    dictionary
+    """
+    try:
+        in_conf = open(os.path.join(home_dir, conf_file))
+    except IOError:
+        print "Error reading the configuration file provided:"
+        print os.path.join(home_dir, conf_file)
+        exit(1)
+    
+    # This should obviously be generated from a configuration file at some
+    # point. For now it's hard-coded
+    config_dict = {
+        'process_shortreads':
+            [process_shortreads_bin,
+             '-P',
+             '-p', os.path.join(data_dir, 'ps_in'),
+             '-b', os.path.join(data_dir, 'ps_barcode/lane7_barcodes'),
+             '-o', os.path.join(data_dir, 'ps_out'),
+             '-i', 'fastq',
+             '-y', 'fastq',
+             '-c',
+             '-E', 'phred33'],
+        'kmer_filter':
+            [kmer_filter_bin,
+             'nothing',],
+        'allpaths':
+            ['nothing'],
+        
+	}
+
+    return config_dict

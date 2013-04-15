@@ -1,0 +1,184 @@
+import re, os, subprocess
+
+pairingBarcodes = True
+
+def pairedFileFormat(pairings, ps_out_dir):
+    """
+    Used for paired-end reads. 
+    Given a list with 2-tuples representing barcodes to be matched, 
+    combine the respective files for both read directions.
+
+    args:
+    pairings -- list of 2-tuples representing desired barcode pairings
+
+    return:
+    no return, but modifies files on disk
+    """
+
+    # Generator allowing lazy retrieval of directory contents
+    root, dirs, files = os.walk(ps_out_dir).next()
+
+    # dictionary of files indexed by barcode
+    matches = {}
+
+    # Compare each possible file pair and associate based on the contents of pairing list
+    for pair in pairings:
+
+        # Collect files in dictionary, indexed by barcode
+        for filename in files:
+            if (pair[0] in filename) and (filename.split('.')[1] != "rem"):
+                ent = os.path.join(root, filename)
+                try:
+                    matches[pair[0]].append(ent)
+                except KeyError:
+                    matches[pair[0]] = [ent]
+            if (pair[1] in filename) and (filename.split('.')[1] != "rem"):
+                ent = os.path.join(root, filename)
+                try:
+                    matches[pair[1]].append(ent)
+                except KeyError:
+                    matches[pair[1]] = [ent]
+
+    # Combine files for paired barcodes
+    # Repeat the process for both ends of paired-end reads
+    for pair in pairings:
+        l1 = matches[pair[0]]
+        l2 = matches[pair[1]]
+        combine_ones = []
+        combine_twos = []
+            
+        # separate first and second pairs of paired-end reads
+        if l1[0][-1] == '1': 
+            combine_ones.append(l1[0])
+            combine_twos.append(l1[1])
+        else:
+            combine_ones.append(l1[1])
+            combine_twos.append(l1[0])
+        if l2[0][-1] == '1':
+            combine_ones.append(l2[0])
+            combine_twos.append(l2[1])
+        else:
+            combine_ones.append(l2[1])
+            combine_twos.append(l2[0])
+            
+        # Create a new filename using the composite of both paired barcodes
+        firstread_filename = combine_ones[0].replace(pair[0], pair[0]+"-"+pair[1])
+        secondread_filename = combine_twos[0].replace(pair[0], pair[0]+"-"+pair[1])
+
+        # Open the first paired-end files for both barcodes
+        f1 = open(combine_ones[0], "r")
+        f2 = open(combine_ones[1], "r")
+        f3 = open(firstread_filename, "w")
+
+        # Write the contents into the new composite file
+        for line in f1:
+            f3.write(line)
+        for line in f2:
+            f3.write(line)
+
+        # Remove the single-barcode files
+        os.remove(combine_ones[0])
+        os.remove(combine_ones[1])
+
+        # Repeat the process for the second paired-end
+        f1 = open(combine_twos[0], "r")
+        f2 = open(combine_twos[1], "r")
+        f3 = open(secondread_filename, "w")
+        
+        for line in f1:
+            f3.write(line)
+        for line in f2:
+            f3.write(line)
+
+        os.remove(combine_twos[0])
+        os.remove(combine_twos[1])
+
+
+def nonPairedFileFormat(pairings):
+    """
+    Used for single-end reads. 
+    Given a list with 2-tuples representing barcodes to be matched, 
+    combine the respective files for both read directions.
+
+    args:
+    pairings -- list of 2-tuples representing desired barcode pairings
+
+    return:
+    no return, but modifies files on disk
+    """
+    # walk the output directory finding the files which are meant to be paired
+    root, dirs, files = os.walk(os.path.join(g_dataDir, ps_out_dir)).next()
+    match_files = []
+    for pair in pairings:
+        this_match = []
+        barcode1 = ''
+        barcode2 = ''
+        for filename in files:
+            if pair[0] in filename:
+                barcode1 = pair[0]
+                this_match.append(os.path.join(root, filename))
+            if pair[1] in filename:
+                barcode2 = pair[1]
+                this_match.append(os.path.join(root, filename))
+        # Make sure we found both files for this match, and add a third element
+        # representing the new filename post merge
+        if len(this_match) == 2:
+            if barcode1 in this_match[0]:
+                this_match.append(this_match[0].replace(barcode1,(barcode1+'-'+barcode2)))
+            elif barcode2 in this_match[0]:
+                this_match.append(this_match[0].replace(barcode2,(barcode2+'-'+barcode1)))
+            match_files.append(this_match)
+        else:
+            print "error matching files with duplicate barcodes."
+            exit(1)
+
+    # combine the file contents and write out to new filename
+    for p in match_files:
+        print p
+        f1 = open(p[0], 'r')
+        f2 = open(p[1], 'r')
+        f3 = open(p[2], 'w')
+        for line in f1:
+            f3.write(line)
+        for line in f2:
+            f3.write(line)
+        os.remove(p[0])
+        os.remove(p[1])
+
+def process_shortreads_run(data_dir, call_list, barcode_match_file):
+    print "\n\t(automate) >> starting process_shortreads\n"
+
+    # call the binary
+    subprocess.call(call_list)
+
+    # get output directory from argument list
+    output_dir = [call_list[x+1] if x+1 < len(call_list) else None for x in range(len(call_list)) if call_list[x] == '-o']
+    if output_dir:
+        output_dir = output_dir[0]
+    else:
+        print "Error parsing output directory"
+        exit(1)
+
+    pairings = []
+
+    if pairingBarcodes:
+        print "\n\t(automate) >> pairing files based on barcodes in file [", barcode_match_file, "]"
+
+        # parse the file that contains the barcode pairings
+        reBarcode = re.compile('.+?PE-(?P<bcode1>\w{5})-.+?PE-(?P<bcode2>\w{5})-.*')
+        matchFile = open(barcode_match_file)
+
+        # add each pair to the list as a 2-tuple
+        for line in matchFile:
+            thisPair = reBarcode.match(line)
+            if thisPair:
+                pairings.append( (thisPair.groups("bcode1")[0], thisPair.groups("bcode2")[1]) )
+            else:
+                print "invalid barcode file format. Offending line:"
+                print line
+                exit(1)
+
+        pairedFileFormat(pairings, output_dir)
+        # nonPairedFileFormat(pairings)
+
+    print "\n\t(automate) >> finished process_shortreads\n"
